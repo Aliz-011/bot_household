@@ -1,3 +1,5 @@
+import { format } from "date-fns";
+
 const ranks = [
     {
         name: 'JAYAPURA',
@@ -21,4 +23,8 @@ const ranks = [
 
 const ranked = ranks.map(rank => `${rank.rnk === 1 ? '🥇' : rank.rnk === 2 ? '🥈' : rank.rnk === 3 ? '🥉' : '🎖️'} ${rank.name}`).join('\n')
 
-console.log(ranked)
+const currentTime = new Date()
+const endDay = format(new Date(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate(), 23, 59), 'yyyy-MM-dd HH:mm:ss')
+
+console.log({ endDay: currentTime.getHours() === 10 && currentTime.getMinutes() === 34 });
+

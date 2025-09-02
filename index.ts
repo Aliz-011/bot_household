@@ -3,7 +3,7 @@ import { config } from "dotenv"
 import * as mysql from 'mysql2/promise'
 import { google } from "googleapis";
 import cron from 'node-cron'
-import { format, subHours, startOfDay, endOfDay } from "date-fns";
+import { format, subHours, startOfDay, endOfDay, subDays, isWeekend } from "date-fns";
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import fs from 'fs'
 import path from 'path'
@@ -225,10 +225,12 @@ async function getTargetIo() {
 // Function to fetch data and send message
 async function sendScheduledMessage(chatId: string) {
     const currentTime = new Date();
+    const yesterday = subDays(currentTime, 1)
     const startTime = format(startOfDay(currentTime), 'yyyy-MM-dd HH:mm:ss'); // 1 hours ago
     const endTime = format(subHours(currentTime, 2), 'yyyy-MM-dd HH:mm:ss'); // Current time
     const endOfDayTime = format(endOfDay(currentTime), 'yyyy-MM-dd HH:mm:ss'); // End of the day
-    const period = format(currentTime, 'yyyyMM')
+    const period = format(yesterday, 'yyyyMM')
+    const flagWeekend = isWeekend(currentTime) ? 'weekend' : 'weekdays'
 
     try {
         const queryWok = `
@@ -250,38 +252,39 @@ async function sendScheduledMessage(chatId: string) {
                 GROUP BY 1
             )
             SELECT
+                X.branch,
                 A.*,
-                SUM(B.daily_ps) as target_ps,
+                ROUND(SUM(B.daily_target) / 0.66376) as target_io,
                 ROUND(
                 CASE
-                    WHEN B.daily_ps = 0 OR A.ps = 0 THEN 0 
-                    ELSE A.ps / SUM(B.daily_ps) * 100 
-                END, 1) AS drr_ps,
-                SUM(B.daily_io) as target_io,
+                    WHEN B.daily_target = 0 OR A.io = 0 THEN 0 
+                    ELSE A.io / ROUND(SUM(B.daily_target) / 0.66376) * 100 
+                END, 1) AS drr_io,
+                ROUND(SUM(B.daily_target) / 0.75453) as target_re,
                 ROUND(
                 CASE
-                    WHEN B.daily_io = 0 OR A.io = 0 THEN 0 
-                    ELSE A.io / SUM(B.daily_io) * 100 
-                END, 1) AS drr_io
+                    WHEN B.daily_target = 0 OR A.re = 0 THEN 0 
+                    ELSE A.re / ROUND(SUM(B.daily_target) / 0.75453) * 100 
+                END, 1) AS drr_re,
+                SUM(B.daily_target) as target_ps,
+                ROUND(
+                CASE
+                    WHEN B.daily_target = 0 OR A.ps = 0 THEN 0 
+                    ELSE A.ps / SUM(B.daily_target) * 100 
+                END, 1) AS drr_ps
             FROM (
-                SELECT 
-                    CASE
-                        WHEN wok in ('AMBON INNER', 'AMBON OUTER') THEN 'AMBON'
-                        WHEN wok IN ('JAYAPURA INNER', 'JAYAPURA OUTER') THEN 'JAYAPURA'
-                        WHEN wok in ('MANOKWARI NABIRE', 'SORONG RAJA AMPAT') THEN 'SORONG'
-                        WHEN wok in ('MIMIKA', 'MERAUKE') THEN 'TIMIKA'
-                    END AS branch,
-                    A.*
+                SELECT A.*
                 FROM ranked A
                 
                 UNION ALL
 
-                SELECT DISTINCT branch, wok, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                SELECT DISTINCT wok, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
                 FROM puma_2025.ref_teritory_household A 
                 WHERE regional = 'MALUKU DAN PAPUA' 
                 AND NOT EXISTS (SELECT 1 rnk FROM ranked B WHERE A.wok = B.wok)
             ) A
-            LEFT JOIN household.target_io_ps_hh B ON A.wok = B.wok AND B.periode = ?
+            LEFT JOIN puma_2025.ref_teritory_household X ON A.wok = X.wok
+            LEFT JOIN household.target_io_ps_hh B ON X.sto = B.territory AND B.periode = ? AND B.flag_days = ?
             GROUP BY wok
             ORDER BY branch, wok
         `;
@@ -306,21 +309,27 @@ async function sendScheduledMessage(chatId: string) {
             )
             SELECT
                 A.*,
-                SUM(B.daily_ps) as target_ps,
+                ROUND(SUM(B.daily_target) / 0.66376) as target_io,
                 ROUND(
                 CASE
-                    WHEN B.daily_ps = 0 OR A.ps = 0 THEN 0 
-                    ELSE A.ps / SUM(B.daily_ps) * 100 
-                END, 1) AS drr_ps,
-                SUM(B.daily_io) as target_io,
+                    WHEN B.daily_target = 0 OR A.io = 0 THEN 0 
+                    ELSE A.io / ROUND(SUM(B.daily_target) / 0.66376) * 100 
+                END, 1) AS drr_io,
+                ROUND(SUM(B.daily_target) / 0.75453) as target_re,
                 ROUND(
                 CASE
-                    WHEN B.daily_io = 0 OR A.io = 0 THEN 0 
-                    ELSE A.io / SUM(B.daily_io) * 100 
-                END, 1) AS drr_io
+                    WHEN B.daily_target = 0 OR A.re = 0 THEN 0 
+                    ELSE A.re / ROUND(SUM(B.daily_target) / 0.75453) * 100 
+                END, 1) AS drr_re,
+                SUM(B.daily_target) as target_ps,
+                ROUND(
+                CASE
+                    WHEN B.daily_target = 0 OR A.ps = 0 THEN 0 
+                    ELSE A.ps / SUM(B.daily_target) * 100 
+                END, 1) AS drr_ps
             FROM (
-                SELECT *
-                FROM ranked
+                SELECT A.*
+                FROM ranked A
 
                 UNION ALL
     
@@ -329,37 +338,33 @@ async function sendScheduledMessage(chatId: string) {
                 WHERE regional = 'MALUKU DAN PAPUA' 
                     AND NOT EXISTS (SELECT 1 FROM ranked B WHERE A.branch = B.branch)
             ) A
-            LEFT JOIN household.target_io_ps_hh B ON A.branch = B.branch AND B.periode = ?
+            LEFT JOIN puma_2025.ref_teritory_household X ON A.branch = X.branch
+            LEFT JOIN household.target_io_ps_hh B ON X.sto = B.territory AND B.periode = ? AND B.flag_days = ?
             GROUP BY 1
             ORDER BY branch
         `;
 
-        const rowsWok = (await executeQuery(queryWok, [startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, period])) as any[]
-        const rowsBranch = (await executeQuery(queryBranch, [startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, period])) as any[]
-        const resultsPs = await getTargetPs()
-        const resultsIo = await getTargetIo()
+        const rowsWok = (await executeQuery(queryWok, [startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, period, flagWeekend])) as any[]
+        const rowsBranch = (await executeQuery(queryBranch, [startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, startTime, endOfDayTime, period, flagWeekend])) as any[]
+        // const resultsPs = await getTargetPs()
+        // const resultsIo = await getTargetIo()
 
         if (!rowsWok || rowsWok.length === 0 || !rowsBranch || rowsBranch.length === 0) {
             await bot.sendMessage(chatId, `Household Hourly Sales Performance - ${endTime} WIB\n\nNo data found for the time range: ${startTime} to ${endTime}.`, { parse_mode: 'HTML' });
             return;
         }
 
-        const targetPsRegion = resultsPs[0];
-        const targetPsBranch = resultsPs.slice(1, 5);
-        const targetPsWok = resultsPs.slice(5, 13);
-        const targetIoRegion = resultsIo[0];
-        const targetIoBranch = resultsIo.slice(1, 5);
-        const targetIoWok = resultsIo.slice(5, 13);
-        const targetReRegion = resultsPs[0];
+        // const targetPsRegion = resultsPs[0];
+        // const targetPsBranch = resultsPs.slice(1, 5);
+        // const targetPsWok = resultsPs.slice(5, 13);
+        // const targetIoRegion = resultsIo[0];
+        // const targetIoBranch = resultsIo.slice(1, 5);
+        // const targetIoWok = resultsIo.slice(5, 13);
+        // const targetReRegion = resultsPs[0];
 
         const calculatedSalesBranch = rowsBranch.map(item => {
-            const targetPs = targetPsBranch.find(t => t.name === item.branch)
-            const targetIo = targetIoBranch.find(t => t.name === item.branch)
 
-            if (targetPs && targetIo && (targetPs.daily > 0 && targetIo.daily > 0)) {
-                const drr_ps = (item.ps / targetPs.daily * 100).toFixed(1)
-                const drr_io = (item.io / targetIo.daily * 100).toFixed(1)
-
+            if (item.target_ps > 0 && item.target_io > 0) {
                 return {
                     branch: item.branch,
                     ps: item.ps || 0,
@@ -371,10 +376,12 @@ async function sendScheduledMessage(chatId: string) {
                     ps_ezw: item.ps_ezw || 0,
                     io_ezw: item.io_ezw || 0,
                     re_ezw: item.re_ezw || 0,
-                    target_ps: targetPs.daily,
-                    drr_ps: parseFloat(drr_ps),
-                    target_io: targetIo.daily,
-                    drr_io: parseFloat(drr_io)
+                    target_io: item.target_io,
+                    drr_io: parseFloat(item.drr_io),
+                    target_re: item.target_re,
+                    drr_re: parseFloat(item.drr_re),
+                    target_ps: item.target_ps,
+                    drr_ps: parseFloat(item.drr_ps)
                 }
             }
 
@@ -389,21 +396,17 @@ async function sendScheduledMessage(chatId: string) {
                 ps_ezw: item.ps_ezw || 0,
                 io_ezw: item.io_ezw || 0,
                 re_ezw: item.re_ezw || 0,
+                target_io: 0,
+                drr_io: 0,
+                target_re: 0,
+                drr_re: 0,
                 target_ps: 0,
                 drr_ps: 0,
-                target_io: 0,
-                drr_io: 0
             }
         })
 
         const calculatedSalesWok = rowsWok.map(item => {
-            const targetPs = targetPsWok.find(t => t.name === item.wok)
-            const targetIo = targetIoWok.find(t => t.name === item.wok)
-
-            if (targetPs && targetIo && (targetPs.daily > 0 && targetIo.daily > 0)) {
-                const drr_ps = (item.ps / targetPs.daily * 100).toFixed(1)
-                const drr_io = (item.io / targetIo.daily * 100).toFixed(1)
-
+            if (item.target_io > 0 && item.target_ps > 0) {
                 return {
                     wok: item.wok,
                     ps: item.ps || 0,
@@ -415,10 +418,12 @@ async function sendScheduledMessage(chatId: string) {
                     ps_ezw: item.ps_ezw || 0,
                     io_ezw: item.io_ezw || 0,
                     re_ezw: item.re_ezw || 0,
-                    target_ps: targetPs.daily,
-                    drr_ps: parseFloat(drr_ps),
-                    target_io: targetIo.daily,
-                    drr_io: parseFloat(drr_io)
+                    target_io: item.target_io,
+                    drr_io: parseFloat(item.drr_io),
+                    target_re: item.target_re,
+                    drr_re: parseFloat(item.drr_re),
+                    target_ps: item.target_ps,
+                    drr_ps: parseFloat(item.drr_ps)
                 }
             }
 
@@ -433,17 +438,19 @@ async function sendScheduledMessage(chatId: string) {
                 ps_ezw: item.ps_ezw || 0,
                 io_ezw: item.io_ezw || 0,
                 re_ezw: item.re_ezw || 0,
-                target_ps: 0,
-                drr_ps: 0,
                 target_io: 0,
-                drr_io: 0
+                drr_io: 0,
+                target_re: 0,
+                drr_re: 0,
+                target_ps: 0,
+                drr_ps: 0
             }
         })
 
         const totalPs = calculatedSalesBranch.reduce((sum, row) => sum + (row.ps || 0), 0)
         const totalIo = calculatedSalesBranch.reduce((sum, row) => sum + (row.io || 0), 0)
-        const totalTargetIo = resultsIo[0]!.daily || 0
-        const totalTargetPs = resultsPs[0]!.daily || 0
+        const totalTargetIo = calculatedSalesBranch.reduce((sum, row) => sum + (row.target_io || 0), 0)
+        const totalTargetPs = calculatedSalesBranch.reduce((sum, row) => sum + (row.target_ps || 0), 0)
         const drr_io = totalTargetIo != 0 || totalIo != 0 ? (totalIo / totalTargetIo * 100).toFixed(1) : '0'
         const drr_ps = totalTargetPs != 0 || totalPs != 0 ? (totalPs / totalTargetPs * 100).toFixed(1) : '0'
 
@@ -456,7 +463,7 @@ async function sendScheduledMessage(chatId: string) {
         const totalReEzwBranch = calculatedSalesBranch.reduce((sum, row) => sum + (row.re_ezw || 0), 0);
         const totalReEzw = totalReEzwBranch
 
-        const totalTargetRe = Math.floor(targetReRegion!.daily / 0.75);
+        const totalTargetRe = calculatedSalesBranch.reduce((sum, row) => sum + (row.target_re || 0), 0)
 
         const dataBranch: RowData[] = calculatedSalesBranch.map(item => ({
             territory: item.branch,
@@ -465,11 +472,11 @@ async function sendScheduledMessage(chatId: string) {
             io_sales_ih: item.io_ih.toString(),
             io_ih6k_ach: item.drr_io + '%',
             io_total: item.io.toString(),
-            re_ih6k: Math.floor(item.target_ps / 0.75).toString(),
+            re_ih6k: item.target_re.toString(),
             re_ezw: item.re_ezw.toString(),
             re_sales_ih: item.re_ih.toString(),
             re_total: item.re.toString(),
-            re_ih6k_ach: calculatePercentage(item.re, (item.target_ps / 0.75)), // Fixed
+            re_ih6k_ach: calculatePercentage(item.re, item.target_re), // Fixed
             ps_ih6k: item.target_ps.toString(),
             ps_ezw: item.ps_ezw.toString(),
             ps_sales_ih: item.ps_ih.toString(),
@@ -485,11 +492,11 @@ async function sendScheduledMessage(chatId: string) {
             io_sales_ih: item.io_ih.toString(),
             io_ih6k_ach: item.drr_io + '%',
             io_total: item.io.toString(),
-            re_ih6k: Math.floor(item.target_ps / 0.75).toString(),
+            re_ih6k: item.target_re.toString(),
             re_ezw: item.re_ezw.toString(),
             re_sales_ih: item.re_ih.toString(),
             re_total: item.re.toString(),
-            re_ih6k_ach: calculatePercentage(item.re, (item.target_ps / 0.75)), // Fixed
+            re_ih6k_ach: calculatePercentage(item.re, item.target_re), // Fixed
             ps_ih6k: item.target_ps.toString(),
             ps_ezw: item.ps_ezw.toString(),
             ps_sales_ih: item.ps_ih.toString(),
@@ -502,21 +509,21 @@ async function sendScheduledMessage(chatId: string) {
         const data: RowData[] = [
             {
                 territory: 'PUMA',
-                io_ih6k: targetIoRegion!.daily.toString(),
+                io_ih6k: totalTargetIo.toString(),
                 io_ezw: calculatedSalesBranch.reduce((sum, row) => sum + (row.io_ezw || 0), 0).toString(),
                 io_sales_ih: calculatedSalesBranch.reduce((sum, row) => sum + (row.io_ih || 0), 0).toString(),
                 io_total: (totalIo).toString(),
-                io_ih6k_ach: calculatePercentage(totalIo, targetIoRegion!.daily),
+                io_ih6k_ach: calculatePercentage(totalIo, totalTargetIo),
                 re_ih6k: (totalTargetRe).toString(),
                 re_ezw: totalReEzw.toString(),
                 re_sales_ih: totalReSalesIh.toString(),
                 re_total: totalRe.toString(),
                 re_ih6k_ach: calculatePercentage(totalRe, totalTargetRe),
-                ps_ih6k: targetPsRegion!.daily.toString(),
+                ps_ih6k: totalTargetPs.toString(),
                 ps_ezw: calculatedSalesBranch.reduce((sum, row) => sum + (row.ps_ezw || 0), 0).toString(),
                 ps_sales_ih: calculatedSalesBranch.reduce((sum, row) => sum + (row.ps_ih || 0), 0).toString(),
                 ps_total: totalPs.toString(),
-                ps_ach_ih6k: calculatePercentage(totalPs, targetPsRegion!.daily),
+                ps_ach_ih6k: calculatePercentage(totalPs, totalTargetPs),
                 ps_io_ps: calculatePercentage(totalPs, totalIo),
                 ps_re_ps: calculatePercentage(totalPs, totalRe)
             },
@@ -553,7 +560,28 @@ async function sendScheduledMessage(chatId: string) {
             return `${emoji} ${row.wok} (${row.target_io} | ${row.io} | ${row.drr_io}%)`
         }).join('\n')
 
-        const message = `
+        let message = ''
+
+        if (currentTime.getHours() === 23 && currentTime.getMinutes() === 59) {
+            message = `
+<pre><code>📊 Household Hourly Sales Performance
+🗓 ${endTime} WIB (Closing)\n
+<b>═════ 🔥IO PERFORMANCE ═════</b>
+<b>📌 PUMA Today : ${totalIo} IO (${totalTargetIo} | ${totalIo} | ${drr_io}%)</b>\n
+<b>🏢 Branch RANK (Trg | Act | %Ach)</b>
+${formattedIoBranch}\n
+<b>🌍 WOK RANK (Trg | Act | %Ach)</b>
+${formattedIoWok}\n
+<b>═════ ⚡️PS PERFORMANCE ═════</b>
+<b>📌 PUMA : ${totalPs} PS (${totalTargetPs} | ${totalPs} | ${drr_ps}%)</b>
+<b>🔐 PUMA IOtoPS : ${ioToPs}%</b>\n
+<b>🏢 Branch RANK(Trg | Act | %Ach)</b>
+${formattedPsBranch}\n
+<b>🌍 WOK RANK (Trg | Act | %Ach)</b>
+${formattedPsWok}\n</code></pre>
+`;
+        } else {
+            message = `
 <pre><code>📊 Household Hourly Sales Performance
 🗓 ${endTime} WIB\n
 <b>═════ 🔥IO PERFORMANCE ═════</b>
@@ -570,6 +598,7 @@ ${formattedPsBranch}\n
 <b>🌍 WOK RANK (Trg | Act | %Ach)</b>
 ${formattedPsWok}\n</code></pre>
 `;
+        }
 
         const ids = chatId.split(',')
         const sentTo: string[] = []
@@ -719,9 +748,6 @@ async function testMessage(chatId: string) {
         const targetIoBranch = resultsIo.slice(1, 5)
         const targetIoWok = resultsIo.slice(5, 13)
         const targetReRegion = resultsPs[0]
-
-        console.log({ targetPsRegion, targetPsBranch, targetPsWok });
-
 
         const calculatedSalesBranch = rowsBranch.map(item => {
             const targetPs = targetPsBranch.find(t => t.name === item.branch)
@@ -992,6 +1018,12 @@ bot.onText(/\/check_id/, async (msg) => {
 
 // Schedule the message to be sent every 1 hours
 cron.schedule('0 10-23 * * *', () => {
+    console.log('Running scheduled task at', new Date().toISOString());
+    const id = TARGET_CHAT_IDS
+    sendScheduledMessage(id);
+}, { timezone: 'Asia/Tokyo' });
+
+cron.schedule('59 23 * * *', () => {
     console.log('Running scheduled task at', new Date().toISOString());
     const id = TARGET_CHAT_IDS
     sendScheduledMessage(id);
