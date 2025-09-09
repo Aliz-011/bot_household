@@ -124,8 +124,7 @@ function generateSalesTable(data: RowData[], trx_date: string, last_update: stri
         // PS section
         { name: 'Target', columns: 1, color: '#bdc3c7' },
         { name: 'Sales', columns: 3, color: '#bdc3c7' },
-        { name: '%Ach', columns: 1, color: '#bdc3c7' },
-        { name: 'Active STO', columns: 2, color: '#bdc3c7' }
+        { name: '%Ach', columns: 3, color: '#bdc3c7' }
     ];
 
     for (const subHeader of subHeaderStructure) {
@@ -215,6 +214,14 @@ function generateSalesTable(data: RowData[], trx_date: string, last_update: stri
                         cellBgColor = '#e8f5e8';
                         textColor = '#2e7d32';
                     }
+                }
+            }
+
+            if (!value.endsWith('%') && !isNaN(Number(value))) {
+                const val = parseFloat(value)
+                if (val === 0) {
+                    cellBgColor = '#ffebee';
+                    textColor = '#c62828';
                 }
             }
 
