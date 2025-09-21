@@ -16,6 +16,7 @@ const proxyAgent = new HttpsProxyAgent('http://10.59.105.207:8080')
 const token = process.env.TELEGRAM_BOT_TOKEN!;
 const bot = new TelegramBot(token, {
     polling: true,
+    filepath: false
 });
 
 const auth = new google.auth.GoogleAuth({
@@ -787,12 +788,12 @@ ${formattedPsWok}\n</code></pre>
             try {
                 const threadId = id.includes('/') ? id.split('/')[1] : undefined;
                 if (threadId) {
-                    const photoMsg = await bot.sendPhoto(id, imageBuffer, { parse_mode: 'HTML', message_thread_id: parseInt(threadId) })
+                    const photoMsg = await bot.sendPhoto(id, imageBuffer, { parse_mode: 'HTML', message_thread_id: parseInt(threadId) }, { filename: 'temp_sales', contentType: 'image/png' })
                     await bot.sendMessage(id, message, { parse_mode: 'HTML', reply_to_message_id: photoMsg.message_id, message_thread_id: parseInt(threadId) })
                     sentTo.push(id)
                     return
                 }
-                const photoMsg = await bot.sendPhoto(id, imageBuffer, { parse_mode: 'HTML' })
+                const photoMsg = await bot.sendPhoto(id, imageBuffer, { parse_mode: 'HTML' }, { filename: 'temp_sales', contentType: 'image/png' })
                 await bot.sendMessage(id, message, { parse_mode: 'HTML', reply_to_message_id: photoMsg.message_id })
                 sentTo.push(id)
             } catch (error) {
