@@ -139,9 +139,9 @@ function generateSalesTable(data: RowData[], trx_date: string, last_update: stri
 
     // Level 3 Headers (IH 6K, EZW, etc.)
     const thirdLevelHeaders = [
-        'IH 6K', 'EZW', 'IH', 'Total', 'IH 6K', // IO
-        'IH 6K', 'EZW', 'IH', 'Total', 'IH 6K', // RE
-        'IH 6K', 'EZW', 'IH', 'Total', 'IH 6K', 'IO/PS', 'RE/PS' // PS
+        'IH 7K', 'EZW', 'IH', 'Total', 'IH 7K', // IO
+        'IH 7K', 'EZW', 'IH', 'Total', 'IH 7K', // RE
+        'IH 7K', 'EZW', 'IH', 'Total', 'IH 7K', 'IO/PS', 'RE/PS' // PS
     ];
 
     x = startX + regionWidth;

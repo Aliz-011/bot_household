@@ -3,7 +3,7 @@ import { config } from "dotenv"
 import * as mysql from 'mysql2/promise'
 import { google } from "googleapis";
 import cron from 'node-cron'
-import { format, subHours, startOfDay, endOfDay, subDays, isWeekend } from "date-fns";
+import { format, subHours, startOfDay, endOfDay, subDays, isWeekend, startOfMonth } from "date-fns";
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import fs from 'fs'
 import path from 'path'
@@ -41,168 +41,6 @@ const access: mysql.PoolOptions = {
 
 // Create MySQL connection pool
 const pool = mysql.createPool(access);
-
-async function getValuesFromSheet(range: string) {
-    const sheet = google.sheets({ version: 'v4', auth })
-    const spreadsheetId = SHEET_ID
-
-    try {
-        const response = await sheet.spreadsheets.values.get({
-            spreadsheetId,
-            range
-        })
-        const rows = response.data.values
-
-        return rows
-    } catch (error) {
-        console.error(error)
-        return error
-    }
-}
-
-async function getTargetPs() {
-    const rows = await getValuesFromSheet('Sheet1!B10:E24') as any[][]
-    const rows2 = await getValuesFromSheet('Sheet1!BE10:BH24') as any[][]
-
-    const results: {
-        name: string;
-        daily: number;
-        mtd: number;
-        fm: number;
-    }[] = [];
-
-    // The data for branches and their targets starts at index 2 of the returned array,
-    // which corresponds to row 12 in the spreadsheet.
-    for (let i = 0; i < rows.length; i++) {
-        const row = rows[i] as any[];
-
-        // Check if the first column (the branch name) is not empty
-        if (row[0] && row[0].trim() !== '') {
-            const branchName = row[0] as string;
-            const dailyTarget = Number(row[1]) || 0;
-            const mtdTarget = Number(row[2]) || 0;
-            const fmTarget = Number(row[3]) || 0;
-
-            const existingBranch = results.find(t => t.name === branchName)
-
-            if (existingBranch) {
-                existingBranch.daily += dailyTarget
-                existingBranch.mtd += mtdTarget
-                existingBranch.fm += fmTarget
-            } else {
-                results.push({
-                    name: branchName,
-                    daily: dailyTarget,
-                    mtd: mtdTarget,
-                    fm: fmTarget
-                })
-            }
-
-        }
-    }
-
-    for (let i = 0; i < rows2.length; i++) {
-        const row = rows2[i] as any[];
-
-        // Check if the first column (the branch name) is not empty
-        if (row[0] && row[0].trim() !== '') {
-            const branchName = row[0] as string;
-            const dailyTarget = Number(row[1]) || 0;
-            const mtdTarget = Number(row[2]) || 0;
-            const fmTarget = Number(row[3]) || 0;
-
-            const existingBranch = results.find(t => t.name === branchName)
-
-            if (existingBranch) {
-                existingBranch.daily += dailyTarget
-                existingBranch.mtd += mtdTarget
-                existingBranch.fm += fmTarget
-            } else {
-                results.push({
-                    name: branchName,
-                    daily: dailyTarget,
-                    mtd: mtdTarget,
-                    fm: fmTarget
-                })
-            }
-
-        }
-    }
-
-    return results
-}
-
-async function getTargetIo() {
-    const rows = await getValuesFromSheet('Sheet1!B29:E43') as any[][]
-    const rows2 = await getValuesFromSheet('Sheet1!BE29:BH43') as any[][]
-
-    const results: {
-        name: string;
-        daily: number;
-        mtd: number;
-        fm: number;
-    }[] = [];
-
-    // The data for branches and their targets starts at index 2 of the returned array,
-    // which corresponds to row 12 in the spreadsheet.
-    for (let i = 0; i < rows.length; i++) {
-        const row = rows[i] as any[];
-
-        // Check if the first column (the branch name) is not empty
-        if (row[0] && row[0].trim() !== '') {
-            const branchName = row[0] as string;
-            const dailyTarget = Number(row[1]) || 0;
-            const mtdTarget = Number(row[2]) || 0;
-            const fmTarget = Number(row[3]) || 0;
-
-            const existingBranch = results.find(t => t.name === branchName)
-
-            if (existingBranch) {
-                existingBranch.daily += dailyTarget
-                existingBranch.mtd += mtdTarget
-                existingBranch.fm += fmTarget
-            } else {
-                results.push({
-                    name: branchName,
-                    daily: dailyTarget,
-                    mtd: mtdTarget,
-                    fm: fmTarget
-                })
-            }
-
-        }
-    }
-
-    for (let i = 0; i < rows2.length; i++) {
-        const row = rows2[i] as any[];
-
-        // Check if the first column (the branch name) is not empty
-        if (row[0] && row[0].trim() !== '') {
-            const branchName = row[0] as string;
-            const dailyTarget = Number(row[1]) || 0;
-            const mtdTarget = Number(row[2]) || 0;
-            const fmTarget = Number(row[3]) || 0;
-
-            const existingBranch = results.find(t => t.name === branchName)
-
-            if (existingBranch) {
-                existingBranch.daily += dailyTarget
-                existingBranch.mtd += mtdTarget
-                existingBranch.fm += fmTarget
-            } else {
-                results.push({
-                    name: branchName,
-                    daily: dailyTarget,
-                    mtd: mtdTarget,
-                    fm: fmTarget
-                })
-            }
-
-        }
-    }
-
-    return results
-}
 
 async function executeQuery(query: string, values?: any[]) {
     try {
@@ -268,22 +106,24 @@ async function clearSheet(range: string): Promise<any> {
 // Function to fetch data and send message
 async function sendScheduledMessage(chatId: string) {
     const currentTime = new Date();
-    const today = currentTime.getHours() === 8 && currentTime.getMinutes() === 0 ? format(subDays(currentTime, 1), 'yyyy-MM-dd') : format(currentTime, 'yyyy-MM-dd')
+    const today = currentTime.getHours() === 8 && currentTime.getMinutes() === 15 ? format(subDays(currentTime, 1), 'yyyy-MM-dd') : format(currentTime, 'yyyy-MM-dd')
     const yesterday = subDays(currentTime, 1)
     const startTime = format(startOfDay(currentTime), 'yyyy-MM-dd HH:mm:ss'); // 1 hours ago
     const endTime = format(subHours(currentTime, 2), 'yyyy-MM-dd HH:mm:ss'); // Current time
     const endOfDayTime = format(endOfDay(currentTime), 'yyyy-MM-dd HH:mm:ss'); // End of the day
-    const period = format(yesterday, 'yyyyMM')
+    const period = format(currentTime, 'yyyy-MM-dd') === format(startOfMonth(currentTime), 'yyyy-MM-dd') && (currentTime.getHours() === 8 && currentTime.getMinutes() === 15) ? format(yesterday, 'yyyyMM') : format(today, 'yyyyMM')
     const flagWeekend = isWeekend(new Date(today)) ? 'weekend' : 'weekdays'
 
     try {
         const queryWok = `
             WITH ranked AS (
                 SELECT
+                    branch,
                     wok,
-                    (COUNT(CASE WHEN DATE_FORMAT(ps_ts, '%Y-%m-%d') = ? AND (product_commercial_name NOT LIKE '%Orbit%' AND product_commercial_name NOT LIKE '%Eznet%') THEN 1 END) + COUNT(CASE WHEN DATE_FORMAT(ps_ts, '%Y-%m-%d') = ? AND (product_commercial_name LIKE '%Orbit%' OR product_commercial_name LIKE '%Eznet%') THEN 1 END)) ps,
-                    (COUNT(CASE WHEN DATE_FORMAT(io_ts, '%Y-%m-%d') = ? AND (product_commercial_name NOT LIKE '%Orbit%' AND product_commercial_name NOT LIKE '%Eznet%') THEN 1 END) + COUNT(CASE WHEN DATE_FORMAT(io_ts, '%Y-%m-%d') = ? AND (product_commercial_name LIKE '%Orbit%' OR product_commercial_name LIKE '%Eznet%') THEN 1 END)) io,
-                    (COUNT(CASE WHEN DATE_FORMAT(re_ts, '%Y-%m-%d') = ? AND (product_commercial_name NOT LIKE '%Orbit%' AND product_commercial_name NOT LIKE '%Eznet%') THEN 1 END) + COUNT(CASE WHEN DATE_FORMAT(re_ts, '%Y-%m-%d') = ? AND (product_commercial_name LIKE '%Orbit%' OR product_commercial_name LIKE '%Eznet%') THEN 1 END)) re,
+                    sto_co as sto,
+                    (COUNT(CASE WHEN DATE_FORMAT(ps_ts, '%Y-%m-%d') = ? THEN 1 END)) ps,
+                    (COUNT(CASE WHEN DATE_FORMAT(io_ts, '%Y-%m-%d') = ? THEN 1 END)) io,
+                    (COUNT(CASE WHEN DATE_FORMAT(re_ts, '%Y-%m-%d') = ? THEN 1 END)) re,
                     COUNT(CASE WHEN DATE_FORMAT(ps_ts, '%Y-%m-%d') = ? AND (product_commercial_name NOT LIKE '%Orbit%' AND product_commercial_name NOT LIKE '%Eznet%') THEN 1 END) ps_ih,
                     COUNT(CASE WHEN DATE_FORMAT(io_ts, '%Y-%m-%d') = ? AND (product_commercial_name NOT LIKE '%Orbit%' AND product_commercial_name NOT LIKE '%Eznet%') THEN 1 END) io_ih,
                     COUNT(CASE WHEN DATE_FORMAT(re_ts, '%Y-%m-%d') = ? AND (product_commercial_name NOT LIKE '%Orbit%' AND product_commercial_name NOT LIKE '%Eznet%') THEN 1 END) re_ih,
@@ -291,44 +131,39 @@ async function sendScheduledMessage(chatId: string) {
                     COUNT(CASE WHEN DATE_FORMAT(io_ts, '%Y-%m-%d') = ? AND (product_commercial_name LIKE '%Orbit%' OR product_commercial_name LIKE '%Eznet%') THEN 1 END) io_ezw,
                     COUNT(CASE WHEN DATE_FORMAT(re_ts, '%Y-%m-%d') = ? AND (product_commercial_name LIKE '%Orbit%' OR product_commercial_name LIKE '%Eznet%') THEN 1 END) re_ezw,
                     RANK() OVER (ORDER BY COUNT(*) DESC) AS rnk
-                FROM household.ih_ordering_detail_order_new_${period}
-                WHERE region = 'MALUKU DAN PAPUA' AND order_type = 'NEW SALES'
+                FROM (select * from household.ih_ordering_detail_order_new) a
+                WHERE region IN ('MALUKU DAN PAPUA', 'PUMA') AND order_type = 'NEW SALES'
                 GROUP BY 1
             )
             SELECT
                 X.branch,
-                A.*,
-                ROUND(ROUND(SUM(B.daily_target), 0) / 0.66376) as target_io,
-                ROUND(
-                CASE
-                    WHEN B.daily_target = 0 OR A.io = 0 THEN 0 
-                    ELSE A.io / ROUND(ROUND(SUM(B.daily_target), 0) / 0.66376) * 100 
-                END, 1) AS drr_io,
-                ROUND(ROUND(SUM(B.daily_target), 0) / 0.75453) as target_re,
-                ROUND(
-                CASE
-                    WHEN B.daily_target = 0 OR A.re = 0 THEN 0 
-                    ELSE A.re / ROUND(ROUND(SUM(B.daily_target), 0) / 0.75453) * 100 
-                END, 1) AS drr_re,
-                ROUND(SUM(B.daily_target), 0) as target_ps,
-                ROUND(
-                CASE
-                    WHEN B.daily_target = 0 OR A.ps = 0 THEN 0 
-                    ELSE A.ps / ROUND(SUM(B.daily_target), 0) * 100 
-                END, 1) AS drr_ps
+                A.wok,
+                SUM(ps) ps, SUM(io) io, sum(re) re,
+                sum(ps_ih) ps_ih, sum(io_ih) io_ih, SUM(re_ih) re_ih,
+                sum(ps_ezw) ps_ezw, sum(io_ezw) io_ezw, SUM(re_ezw) re_ezw,
+                ROUND(SUM(CAST(B.target_io AS DOUBLE)), 0) AS target_io,
+                ROUND(CASE WHEN CAST(B.target_io AS DOUBLE) = 0 OR SUM(A.io_ih) = 0 THEN 0 ELSE SUM(A.io_ih) / ROUND(SUM(CAST(B.target_io AS DOUBLE)), 0) * 100 END,1) AS drr_io,
+                ROUND(SUM(CAST(B.target_re AS DOUBLE)), 0) AS target_re,
+                ROUND(CASE WHEN CAST(B.target_re AS DOUBLE) = 0 OR SUM(A.re_ih) = 0 THEN 0 ELSE SUM(A.re_ih) / ROUND(SUM(CAST(B.target_re AS DOUBLE)), 0) * 100 END,1) AS drr_re,
+                ROUND(SUM(CAST(B.target_ps AS DOUBLE)), 0) AS target_ps,
+                ROUND(CASE WHEN CAST(B.target_ps AS DOUBLE) = 0 OR SUM(A.ps_ih) = 0 THEN 0 ELSE SUM(A.ps_ih) / ROUND(SUM(CAST(B.target_ps AS DOUBLE)), 0) * 100 END, 1) AS drr_ps
             FROM (
-                SELECT A.*
+                SELECT branch, wok, sto,
+                ps, io, re,
+                ps_ih, io_ih, re_ih,
+                ps_ezw, io_ezw, re_ezw
                 FROM ranked A
                 
                 UNION ALL
 
-                SELECT DISTINCT wok, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                SELECT DISTINCT branch, wok, sto,
+                0,0,0,0,0,0,0,0,0
                 FROM puma_2025.ref_teritory_household A 
                 WHERE regional = 'MALUKU DAN PAPUA' 
-                AND NOT EXISTS (SELECT 1 rnk FROM ranked B WHERE A.wok = B.wok)
+                AND NOT EXISTS (SELECT 1 rnk FROM ranked B WHERE A.sto = B.sto)
             ) A
-            LEFT JOIN puma_2025.ref_teritory_household X ON A.wok = X.wok
-            LEFT JOIN household.target_io_ps_hh B ON X.sto = B.territory AND B.periode = ? AND B.flag_days = ?
+            LEFT JOIN (SELECT DISTINCT branch, wok,sto FROM puma_2025.ref_teritory_household) X ON A.sto = X.sto
+            LEFT JOIN household.target_io_ps_hh_v2 B ON X.sto = B.territory AND B.periode = ? AND B.flag_days = ?
             GROUP BY wok
             ORDER BY branch, wok
         `;
@@ -337,9 +172,11 @@ async function sendScheduledMessage(chatId: string) {
             WITH ranked AS (
                 SELECT
                     branch,
-                    (COUNT(CASE WHEN DATE_FORMAT(ps_ts, '%Y-%m-%d') = ? AND (product_commercial_name NOT LIKE '%Orbit%' AND product_commercial_name NOT LIKE '%Eznet%') THEN 1 END) + COUNT(CASE WHEN DATE_FORMAT(ps_ts, '%Y-%m-%d') = ? AND (product_commercial_name LIKE '%Orbit%' OR product_commercial_name LIKE '%Eznet%') THEN 1 END)) ps,
-                    (COUNT(CASE WHEN DATE_FORMAT(io_ts, '%Y-%m-%d') = ? AND (product_commercial_name NOT LIKE '%Orbit%' AND product_commercial_name NOT LIKE '%Eznet%') THEN 1 END) + COUNT(CASE WHEN DATE_FORMAT(io_ts, '%Y-%m-%d') = ? AND (product_commercial_name LIKE '%Orbit%' OR product_commercial_name LIKE '%Eznet%') THEN 1 END)) io,
-                    (COUNT(CASE WHEN DATE_FORMAT(re_ts, '%Y-%m-%d') = ? AND (product_commercial_name NOT LIKE '%Orbit%' AND product_commercial_name NOT LIKE '%Eznet%') THEN 1 END) + COUNT(CASE WHEN DATE_FORMAT(re_ts, '%Y-%m-%d') = ? AND (product_commercial_name LIKE '%Orbit%' OR product_commercial_name LIKE '%Eznet%') THEN 1 END)) re,
+                    wok,
+                    sto_co as sto,
+                    (COUNT(CASE WHEN DATE_FORMAT(ps_ts, '%Y-%m-%d') = ? THEN 1 END)) ps,
+                    (COUNT(CASE WHEN DATE_FORMAT(io_ts, '%Y-%m-%d') = ? THEN 1 END)) io,
+                    (COUNT(CASE WHEN DATE_FORMAT(re_ts, '%Y-%m-%d') = ? THEN 1 END)) re,
                     COUNT(CASE WHEN DATE_FORMAT(ps_ts, '%Y-%m-%d') = ? AND (product_commercial_name NOT LIKE '%Orbit%' AND product_commercial_name NOT LIKE '%Eznet%') THEN 1 END) ps_ih,
                     COUNT(CASE WHEN DATE_FORMAT(io_ts, '%Y-%m-%d') = ? AND (product_commercial_name NOT LIKE '%Orbit%' AND product_commercial_name NOT LIKE '%Eznet%') THEN 1 END) io_ih,
                     COUNT(CASE WHEN DATE_FORMAT(re_ts, '%Y-%m-%d') = ? AND (product_commercial_name NOT LIKE '%Orbit%' AND product_commercial_name NOT LIKE '%Eznet%') THEN 1 END) re_ih,
@@ -347,44 +184,41 @@ async function sendScheduledMessage(chatId: string) {
                     COUNT(CASE WHEN DATE_FORMAT(io_ts, '%Y-%m-%d') = ? AND (product_commercial_name LIKE '%Orbit%' OR product_commercial_name LIKE '%Eznet%') THEN 1 END) io_ezw,
                     COUNT(CASE WHEN DATE_FORMAT(re_ts, '%Y-%m-%d') = ? AND (product_commercial_name LIKE '%Orbit%' OR product_commercial_name LIKE '%Eznet%') THEN 1 END) re_ezw,
                     RANK() OVER (ORDER BY COUNT(*) DESC) AS rnk
-                FROM household.ih_ordering_detail_order_new_${period}
-                WHERE region = 'MALUKU DAN PAPUA' AND order_type = 'NEW SALES'
+                FROM (select * from household.ih_ordering_detail_order_new) a
+                WHERE region IN ('MALUKU DAN PAPUA', 'PUMA') AND order_type = 'NEW SALES'
                 GROUP BY 1
             )
             SELECT
-                A.*,
-                ROUND(ROUND(SUM(B.daily_target), 0) / 0.66376) as target_io,
-                ROUND(
-                CASE
-                    WHEN B.daily_target = 0 OR A.io = 0 THEN 0 
-                    ELSE A.io / ROUND(ROUND(SUM(B.daily_target), 0) / 0.66376) * 100 
-                END, 1) AS drr_io,
-                ROUND(ROUND(SUM(B.daily_target), 0) / 0.75453) as target_re,
-                ROUND(
-                CASE
-                    WHEN B.daily_target = 0 OR A.re = 0 THEN 0 
-                    ELSE A.re / ROUND(ROUND(SUM(B.daily_target), 0) / 0.75453) * 100 
-                END, 1) AS drr_re,
-                ROUND(SUM(B.daily_target), 0) as target_ps,
-                ROUND(
-                CASE
-                    WHEN B.daily_target = 0 OR A.ps = 0 THEN 0 
-                    ELSE A.ps / ROUND(SUM(B.daily_target), 0) * 100 
-                END, 1) AS drr_ps
+                A.branch,
+                SUM(ps) ps, SUM(io) io, sum(re) re,
+                sum(ps_ih) ps_ih, sum(io_ih) io_ih, SUM(re_ih) re_ih,
+                sum(ps_ezw) ps_ezw, sum(io_ezw) io_ezw, SUM(re_ezw) re_ezw,
+                ROUND(SUM(CAST(B.target_io AS DOUBLE)), 0) AS target_io,
+                ROUND(CASE WHEN CAST(B.target_io AS DOUBLE) = 0 OR SUM(A.io_ih) = 0 THEN 0 ELSE SUM(A.io_ih) / ROUND(SUM(CAST(B.target_io AS DOUBLE)), 0) * 100 END,1) AS drr_io,
+                ROUND(SUM(CAST(B.target_re AS DOUBLE)), 0) AS target_re,
+                ROUND(CASE WHEN CAST(B.target_re AS DOUBLE) = 0 OR SUM(A.re_ih) = 0 THEN 0 ELSE SUM(A.re_ih) / ROUND(SUM(CAST(B.target_re AS DOUBLE)), 0) * 100 END,1) AS drr_re,
+                ROUND(SUM(CAST(B.target_ps AS DOUBLE)), 0) AS target_ps,
+                ROUND(CASE WHEN CAST(B.target_ps AS DOUBLE) = 0 OR SUM(A.ps_ih) = 0 THEN 0 ELSE SUM(A.ps_ih) / ROUND(SUM(CAST(B.target_ps AS DOUBLE)), 0) * 100 END, 1) AS drr_ps
             FROM (
-                SELECT A.*
+                SELECT A.branch, A.wok, A.sto,
+                A.ps, A.io, A.re,
+                A.ps_ih, A.io_ih, A.re_ih,
+                A.ps_ezw, A.io_ezw, A.re_ezw
                 FROM ranked A
 
                 UNION ALL
     
-                SELECT DISTINCT branch, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                SELECT DISTINCT branch, wok, sto,
+                0,0,0,0,0,0,0,0,0
                 FROM puma_2025.ref_teritory_household A
                 WHERE regional = 'MALUKU DAN PAPUA' 
-                    AND NOT EXISTS (SELECT 1 FROM ranked B WHERE A.branch = B.branch)
+                    AND NOT EXISTS (SELECT 1 FROM ranked B WHERE A.sto = B.sto)
             ) A
-            LEFT JOIN puma_2025.ref_teritory_household X ON A.branch = X.branch
-            LEFT JOIN household.target_io_ps_hh B ON X.sto = B.territory AND B.periode = ? AND B.flag_days = ?
-            GROUP BY 1
+            LEFT JOIN (SELECT DISTINCT branch, wok, sto FROM puma_2025.ref_teritory_household) X ON A.sto = X.sto
+            LEFT JOIN household.target_io_ps_hh_v2 B ON X.sto = B.territory 
+                AND B.periode = ? 
+                AND B.flag_days = ?
+            GROUP BY A.branch
             ORDER BY branch
         `;
 
@@ -522,15 +356,16 @@ async function sendScheduledMessage(chatId: string) {
             kec_adm,
             desa_adm,
             DATE_FORMAT(event_date, '%Y-%m-%d') as event_date
-FROM ih_ordering_detail_order_new_${period}
-            WHERE region = 'MALUKU DAN PAPUA' AND order_type = 'NEW SALES'
-                AND DATE_FORMAT(io_ts, '%Y-%m-%d') = ? AND product_commercial_name IS NOT NULL
+FROM household.ih_ordering_detail_order_new
+            WHERE region IN ('MALUKU DAN PAPUA', 'PUMA') AND order_type = 'NEW SALES'
+                AND DATE_FORMAT(io_ts, '%Y-%m-%d') = ?
+            GROUP BY service_id
         `
 
         const dataIoToSheet = await queryToArray(queryIo, [today])
 
-        const rowsWok = (await executeQuery(queryWok, [today, today, today, today, today, today, today, today, today, today, today, today, period, flagWeekend])) as any[]
-        const rowsBranch = (await executeQuery(queryBranch, [today, today, today, today, today, today, today, today, today, today, today, today, period, flagWeekend])) as any[]
+        const rowsWok = (await executeQuery(queryWok, [today, today, today, today, today, today, today, today, today, period, flagWeekend])) as any[]
+        const rowsBranch = (await executeQuery(queryBranch, [today, today, today, today, today, today, today, today, today, period, flagWeekend])) as any[]
 
         if (!rowsWok || rowsWok.length === 0 || !rowsBranch || rowsBranch.length === 0) {
             await bot.sendMessage(chatId, `Household Hourly Sales Performance - ${endTime} WIB\n\nNo data found for the time range: ${startTime} to ${endTime}.`, { parse_mode: 'HTML' });
@@ -541,39 +376,42 @@ FROM ih_ordering_detail_order_new_${period}
         await writeData('IO!A:EC', dataIoToSheet)
 
         const calculatedSalesBranch = rowsBranch.map(item => {
+            const target_ps = Number(item.target_ps || 0);
+            const target_io = Number(item.target_io || 0);
+            const target_re = Number(item.target_re || 0);
 
-            if (item.target_ps > 0 && item.target_io > 0) {
+            if (target_ps > 0 && target_io > 0) {
                 return {
                     branch: item.branch,
-                    ps: item.ps || 0,
-                    io: item.io || 0,
-                    re: item.re || 0,
-                    ps_ih: item.ps_ih || 0,
-                    io_ih: item.io_ih || 0,
-                    re_ih: item.re_ih || 0,
-                    ps_ezw: item.ps_ezw || 0,
-                    io_ezw: item.io_ezw || 0,
-                    re_ezw: item.re_ezw || 0,
-                    target_io: item.target_io,
-                    drr_io: parseFloat(item.drr_io),
-                    target_re: item.target_re,
-                    drr_re: parseFloat(item.drr_re),
-                    target_ps: item.target_ps,
-                    drr_ps: parseFloat(item.drr_ps)
+                    ps: Number(item.ps || 0),
+                    io: Number(item.io || 0),
+                    re: Number(item.re || 0),
+                    ps_ih: Number(item.ps_ih || 0),
+                    io_ih: Number(item.io_ih || 0),
+                    re_ih: Number(item.re_ih || 0),
+                    ps_ezw: Number(item.ps_ezw || 0),
+                    io_ezw: Number(item.io_ezw || 0),
+                    re_ezw: Number(item.re_ezw || 0),
+                    target_io: target_io,
+                    drr_io: parseFloat(item.drr_io || 0),
+                    target_re: target_re,
+                    drr_re: parseFloat(item.drr_re || 0),
+                    target_ps: target_ps,
+                    drr_ps: parseFloat(item.drr_ps || 0)
                 }
             }
 
             return {
                 branch: item.branch,
-                ps: item.ps || 0,
-                io: item.io || 0,
-                re: item.re || 0,
-                ps_ih: item.ps_ih || 0,
-                io_ih: item.io_ih || 0,
-                re_ih: item.re_ih || 0,
-                ps_ezw: item.ps_ezw || 0,
-                io_ezw: item.io_ezw || 0,
-                re_ezw: item.re_ezw || 0,
+                ps: Number(item.ps || 0),
+                io: Number(item.io || 0),
+                re: Number(item.re || 0),
+                ps_ih: Number(item.ps_ih || 0),
+                io_ih: Number(item.io_ih || 0),
+                re_ih: Number(item.re_ih || 0),
+                ps_ezw: Number(item.ps_ezw || 0),
+                io_ezw: Number(item.io_ezw || 0),
+                re_ezw: Number(item.re_ezw || 0),
                 target_io: 0,
                 drr_io: 0,
                 target_re: 0,
@@ -584,38 +422,42 @@ FROM ih_ordering_detail_order_new_${period}
         })
 
         const calculatedSalesWok = rowsWok.map(item => {
-            if (item.target_io > 0 && item.target_ps > 0) {
+            const target_io = Number(item.target_io || 0);
+            const target_ps = Number(item.target_ps || 0);
+            const target_re = Number(item.target_re || 0);
+
+            if (target_io > 0 && target_ps > 0) {
                 return {
                     wok: item.wok,
-                    ps: item.ps || 0,
-                    io: item.io || 0,
-                    re: item.re || 0,
-                    ps_ih: item.ps_ih || 0,
-                    io_ih: item.io_ih || 0,
-                    re_ih: item.re_ih || 0,
-                    ps_ezw: item.ps_ezw || 0,
-                    io_ezw: item.io_ezw || 0,
-                    re_ezw: item.re_ezw || 0,
-                    target_io: item.target_io,
-                    drr_io: parseFloat(item.drr_io),
-                    target_re: item.target_re,
-                    drr_re: parseFloat(item.drr_re),
-                    target_ps: item.target_ps,
-                    drr_ps: parseFloat(item.drr_ps)
+                    ps: Number(item.ps || 0),
+                    io: Number(item.io || 0),
+                    re: Number(item.re || 0),
+                    ps_ih: Number(item.ps_ih || 0),
+                    io_ih: Number(item.io_ih || 0),
+                    re_ih: Number(item.re_ih || 0),
+                    ps_ezw: Number(item.ps_ezw || 0),
+                    io_ezw: Number(item.io_ezw || 0),
+                    re_ezw: Number(item.re_ezw || 0),
+                    target_io: target_io,
+                    drr_io: parseFloat(item.drr_io || 0),
+                    target_re: target_re,
+                    drr_re: parseFloat(item.drr_re || 0),
+                    target_ps: target_ps,
+                    drr_ps: parseFloat(item.drr_ps || 0)
                 }
             }
 
             return {
                 wok: item.wok,
-                ps: item.ps || 0,
-                io: item.io || 0,
-                re: item.re || 0,
-                ps_ih: item.ps_ih || 0,
-                io_ih: item.io_ih || 0,
-                re_ih: item.re_ih || 0,
-                ps_ezw: item.ps_ezw || 0,
-                io_ezw: item.io_ezw || 0,
-                re_ezw: item.re_ezw || 0,
+                ps: Number(item.ps || 0),
+                io: Number(item.io || 0),
+                re: Number(item.re || 0),
+                ps_ih: Number(item.ps_ih || 0),
+                io_ih: Number(item.io_ih || 0),
+                re_ih: Number(item.re_ih || 0),
+                ps_ezw: Number(item.ps_ezw || 0),
+                io_ezw: Number(item.io_ezw || 0),
+                re_ezw: Number(item.re_ezw || 0),
                 target_io: 0,
                 drr_io: 0,
                 target_re: 0,
@@ -691,17 +533,17 @@ FROM ih_ordering_detail_order_new_${period}
                 io_ezw: calculatedSalesBranch.reduce((sum, row) => sum + (row.io_ezw || 0), 0).toString(),
                 io_sales_ih: calculatedSalesBranch.reduce((sum, row) => sum + (row.io_ih || 0), 0).toString(),
                 io_total: (totalIo).toString(),
-                io_ih6k_ach: calculatePercentage(totalIo, totalTargetIo),
+                io_ih6k_ach: calculatePercentage(calculatedSalesBranch.reduce((sum, row) => sum + (row.io_ih || 0), 0), totalTargetIo),
                 re_ih6k: (totalTargetRe).toString(),
                 re_ezw: totalReEzw.toString(),
                 re_sales_ih: totalReSalesIh.toString(),
                 re_total: totalRe.toString(),
-                re_ih6k_ach: calculatePercentage(totalRe, totalTargetRe),
+                re_ih6k_ach: calculatePercentage(calculatedSalesBranch.reduce((sum, row) => sum + (row.re_ih || 0), 0), totalTargetRe),
                 ps_ih6k: totalTargetPs.toString(),
                 ps_ezw: calculatedSalesBranch.reduce((sum, row) => sum + (row.ps_ezw || 0), 0).toString(),
                 ps_sales_ih: calculatedSalesBranch.reduce((sum, row) => sum + (row.ps_ih || 0), 0).toString(),
                 ps_total: totalPs.toString(),
-                ps_ach_ih6k: calculatePercentage(totalPs, totalTargetPs),
+                ps_ach_ih6k: calculatePercentage(calculatedSalesBranch.reduce((sum, row) => sum + (row.ps_ih || 0), 0), totalTargetPs),
                 ps_io_ps: calculatePercentage(totalPs, totalIo),
                 ps_re_ps: calculatePercentage(totalPs, totalRe)
             },
@@ -740,7 +582,7 @@ FROM ih_ordering_detail_order_new_${period}
 
         let message = ''
 
-        if (currentTime.getHours() === 8 && currentTime.getMinutes() === 0) {
+        if (currentTime.getHours() === 8 && currentTime.getMinutes() === 15) {
             const endTime = format(yesterday, 'yyyy-MM-dd')
             message = `
 <pre><code>📊 Household Hourly Sales Performance
@@ -826,13 +668,7 @@ bot.onText(/\/check_id/, async (msg) => {
 })
 
 // Schedule the message to be sent every 1 hours
-cron.schedule('0 10-23 * * *', () => {
-    console.log('Running scheduled task at', new Date().toISOString());
-    const id = TARGET_CHAT_IDS
-    sendScheduledMessage(id);
-}, { timezone: 'Asia/Tokyo' });
-
-cron.schedule('0 8 * * *', () => {
+cron.schedule('15 8,10-23 * * *', () => {
     console.log('Running scheduled task at', new Date().toISOString());
     const id = TARGET_CHAT_IDS
     sendScheduledMessage(id);
