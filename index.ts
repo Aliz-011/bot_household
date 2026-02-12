@@ -133,7 +133,7 @@ async function sendScheduledMessage(chatId: string) {
                     RANK() OVER (ORDER BY COUNT(*) DESC) AS rnk
                 FROM (select * from household.ih_ordering_detail_order_new) a
                 WHERE region IN ('MALUKU DAN PAPUA', 'PUMA') AND order_type = 'NEW SALES'
-                GROUP BY 1
+                GROUP BY 1,2,3
             )
             SELECT
                 X.branch,
@@ -164,7 +164,7 @@ async function sendScheduledMessage(chatId: string) {
             ) A
             LEFT JOIN (SELECT DISTINCT branch, wok,sto FROM puma_2025.ref_teritory_household) X ON A.sto = X.sto
             LEFT JOIN household.target_io_ps_hh_v2 B ON X.sto = B.territory AND B.periode = ? AND B.flag_days = ?
-            GROUP BY wok
+            GROUP BY A.wok
             ORDER BY branch, wok
         `;
 
