@@ -7,6 +7,7 @@ import { format, subHours, startOfDay, endOfDay, subDays, isWeekend, startOfMont
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import fs from 'fs'
 import path from 'path'
+
 import { generateSalesTable, calculatePercentage, type RowData } from "./lib/utils";
 
 config({ path: ".env" })
@@ -21,7 +22,10 @@ const bot = new TelegramBot(token, {
 
 const auth = new google.auth.GoogleAuth({
     keyFile: './cedar-kiln-460702-f0-8e6f032914b1.json',
-    scopes: ['https://www.googleapis.com/auth/spreadsheets']
+    scopes: [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive.readonly'
+    ]
 })
 
 const SHEET_ID = process.env.SHEET_ID as string
@@ -101,6 +105,77 @@ async function clearSheet(range: string): Promise<any> {
         console.error('Error writing to sheet:', error);
         throw error;
     }
+}
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function exportSheetAsPDF(gid: string = '0'): Promise<Buffer> {
+    const accessToken = await auth.getAccessToken();
+
+    if (!accessToken) {
+        throw new Error('Failed to obtain access token from Google Auth');
+    }
+
+    // A1:AU50 → r1=1, c1=1, r2=50, c2=47 (AU is the 47th column)
+    const params = new URLSearchParams({
+        format: 'pdf',
+        gid,
+        scale: '2',
+        portrait: 'false',
+        fitw: 'true',
+        gridlines: 'false',
+        printtitle: 'false',
+        sheetnames: 'false',
+        pagenum: 'UNDEFINED',
+        fzr: 'false',
+        top_margin: '0.10',
+        bottom_margin: '0.10',
+        left_margin: '0.10',
+        right_margin: '0.10',
+        // --- Range restriction: A1:AU50 ---
+        r1: '0',   // start row (0-indexed in export params)
+        c1: '0',   // start col
+        r2: '49',  // end row (row 50, 0-indexed)
+        c2: '46',  // end col (AU = col 47, 0-indexed = 46)
+    });
+
+    const exportUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export` +
+        `?format=pdf` +
+        `&size=29x12` +
+        `&scale=2` +
+        `&portrait=false` +     // Landscape is better for A:AU
+        `&fitw=true` +
+        `&top_margin=0.01&bottom_margin=0.01&left_margin=0.01&right_margin=0.01` +
+        `&sheetnames=false&printtitle=false&pagenum=UNDEFINED` +
+        `&gridlines=false&fzr=false` +
+        `&gid=${gid}` +
+        `&r1=0&c1=0&r2=50&c2=46`;
+
+
+    const response = await fetch(exportUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Failed to export sheet: ${response.status} — ${body}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const pdfBuffer = Buffer.from(arrayBuffer);
+    console.log(`PDF exported: ${pdfBuffer.byteLength} bytes`);
+    return pdfBuffer;
+}
+
+async function getLastRow(sheetName: string = 'Sheet1'): Promise<number> {
+    const sheets = google.sheets({ version: 'v4', auth: auth });
+
+    const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: `${sheetName}!A:A`, // check column A for last filled row
+    });
+
+    return response.data.values?.length ?? 1;
 }
 
 // Function to fetch data and send message
@@ -650,6 +725,58 @@ ${formattedPsWok}\n</code></pre>
     }
 }
 
+async function sendScheduledCapturedImageMessage(chatId: string) {
+    try {
+        const pdfBuffer = await exportSheetAsPDF('840796662');
+
+        const imageArrayBuffer = pdfBuffer.buffer
+        const imageBuffer = Buffer.from(imageArrayBuffer);
+
+        const ids = chatId.split(',')
+        const sentTo: string[] = []
+
+        for (const id of ids) {
+            if (!id || sentTo.includes(id)) continue;
+
+            try {
+                const threadId = id.includes('/') ? id.split('/')[1] : undefined;
+                if (threadId) {
+                    const photoMsg = await bot.sendPhoto(id, imageBuffer, { caption: '📊 SUMMARY PERFORMANCE REGION PUMA!', message_thread_id: parseInt(threadId) });
+                    await bot.sendDocument(
+                        id,
+                        pdfBuffer,
+                        { caption: `Sheet Report`, message_thread_id: parseInt(threadId), reply_to_message_id: photoMsg.message_id },
+                        {
+                            filename: 'Spreadsheet_Export.pdf',
+                            contentType: 'application/pdf',
+
+                        }
+                    );
+                    sentTo.push(id)
+                    return
+                }
+                const photoMsg = await bot.sendPhoto(id, imageBuffer, { caption: '📊 SUMMARY PERFORMANCE REGION PUMA' });
+                await bot.sendDocument(
+                    id,
+                    pdfBuffer,
+                    { caption: `Sheet Report`, reply_to_message_id: photoMsg.message_id },
+                    {
+                        filename: 'Spreadsheet_Export.pdf',
+                        contentType: 'application/pdf'
+                    }
+                );
+                sentTo.push(id)
+            } catch (error) {
+                console.error("Error sending message to chatId " + id + ": ", error);
+            }
+        }
+
+        console.log('Successfully sent to Telegram!');
+    } catch (err) {
+        console.error('Job failed:', err);
+    }
+}
+
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     bot.sendMessage(chatId, "Hi", { parse_mode: 'HTML' });
@@ -658,6 +785,11 @@ bot.onText(/\/start/, async (msg) => {
 bot.onText(/\/check_ps/, async (msg) => {
     const chatId = msg.chat.id;
     sendScheduledMessage(chatId.toString());
+});
+
+bot.onText(/\/check_sheet/, async (msg) => {
+    const chatId = msg.chat.id;
+    sendScheduledCapturedImageMessage(chatId.toString());
 });
 
 bot.onText(/\/check_id/, async (msg) => {
@@ -670,8 +802,15 @@ bot.onText(/\/check_id/, async (msg) => {
 // Schedule the message to be sent every 1 hours
 cron.schedule('15 8,10-23 * * *', () => {
     console.log('Running scheduled task at', new Date().toISOString());
-    const id = TARGET_CHAT_IDS
-    sendScheduledMessage(id);
+    sendScheduledMessage(TARGET_CHAT_IDS);
+}, { timezone: 'Asia/Tokyo' });
+
+// Schedule the message to be sent every 1 hours
+cron.schedule('0 15,18,20 * * *', () => {
+    console.log('Running scheduled task at', new Date().toISOString());
+    const TARGET_CHAT_IDS = "1515251812,916698330,-1002905256400/5384"
+    sendScheduledCapturedImageMessage(TARGET_CHAT_IDS);
+
 }, { timezone: 'Asia/Tokyo' });
 
 // Gracefully close the pool on process termination
