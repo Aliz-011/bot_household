@@ -120,7 +120,7 @@ async function exportSheetAsPDF(gid: string = '0'): Promise<Buffer> {
     const params = new URLSearchParams({
         format: 'pdf',
         gid,
-        scale: '2',
+        scale: '4',
         portrait: 'false',
         fitw: 'true',
         gridlines: 'false',
@@ -142,14 +142,14 @@ async function exportSheetAsPDF(gid: string = '0'): Promise<Buffer> {
     const exportUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export` +
         `?format=pdf` +
         `&size=29x10` +
-        `&scale=2` +
+        `&scale=4` +
         `&portrait=false` +     // Landscape is better for A:AU
         `&fitw=true` +
         `&top_margin=0.01&bottom_margin=0.01&left_margin=0.01&right_margin=0.01` +
         `&sheetnames=false&printtitle=false&pagenum=UNDEFINED` +
         `&gridlines=false&fzr=false` +
         `&gid=${gid}` +
-        `&r1=0&c1=0&r2=50&c2=48`;
+        `&r1=3&c1=0&r2=59&c2=57`;
 
 
     const response = await fetch(exportUrl, {
