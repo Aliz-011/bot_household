@@ -741,13 +741,13 @@ async function sendScheduledCapturedImageMessage(chatId: string) {
             try {
                 const threadId = id.includes('/') ? id.split('/')[1] : undefined;
                 if (threadId) {
-                    const photoMsg = await bot.sendPhoto(id, imageBuffer, { caption: '📊 SUMMARY PERFORMANCE REGION PUMA!', message_thread_id: parseInt(threadId) });
+                    const photoMsg = await bot.sendPhoto(id, imageBuffer, { caption: '📊 SUMMARY PERFORMANCE REGION PUMA', message_thread_id: parseInt(threadId) });
                     await bot.sendDocument(
                         id,
                         pdfBuffer,
-                        { caption: `Sheet Report`, message_thread_id: parseInt(threadId), reply_to_message_id: photoMsg.message_id },
+                        { caption: `${format(new Date(), 'yyyyMMdd')}_hh_performance`, message_thread_id: parseInt(threadId), reply_to_message_id: photoMsg.message_id },
                         {
-                            filename: 'Spreadsheet_Export.pdf',
+                            filename: `${format(new Date(), 'yyyyMMdd')}_hh_performance.pdf`,
                             contentType: 'application/pdf',
 
                         }
@@ -759,9 +759,9 @@ async function sendScheduledCapturedImageMessage(chatId: string) {
                 await bot.sendDocument(
                     id,
                     pdfBuffer,
-                    { caption: `Sheet Report`, reply_to_message_id: photoMsg.message_id },
+                    { caption: `${format(new Date(), 'yyyyMMdd')}_hh_performance`, reply_to_message_id: photoMsg.message_id },
                     {
-                        filename: 'Spreadsheet_Export.pdf',
+                        filename: `${format(new Date(), 'yyyyMMdd')}_hh_performance.pdf`,
                         contentType: 'application/pdf'
                     }
                 );
